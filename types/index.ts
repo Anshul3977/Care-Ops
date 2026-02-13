@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'STAFF' | 'NONE'
+export type UserRole = 'ADMIN' | 'STAFF' | 'VIEWER' | 'NONE'
 export type MessageType =
   | 'booking_confirmation'
   | 'customer_inquiry'
@@ -13,6 +13,7 @@ export interface User {
   email: string
   name: string
   role: UserRole
+  workspaceId?: string
   createdAt: Date
 }
 
@@ -21,6 +22,6 @@ export interface AuthContextType {
   isLoading: boolean
   error: string | null
   login: (email: string, password: string) => Promise<void>
-  signup: (email: string, password: string, name: string, role?: UserRole) => Promise<void>
+  signup: (email: string, password: string, name: string) => Promise<void>
   logout: () => void
 }

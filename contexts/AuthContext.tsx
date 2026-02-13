@@ -1,10 +1,16 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import type { AuthContextType, User } from '@/types'
+import type { AuthContextType, User, UserRole } from '@/types'
 import { supabase } from '@/lib/supabase'
 import { createWorkspace, createUser } from '@/lib/api'
-import { getSavedUser, removeUser, saveUser, validateLogin, validateSignup } from '@/lib/auth'
+import { AuthChangeEvent, Session } from '@supabase/supabase-js'
+
+// Map DB lowercase roles to frontend uppercase UserRole
+function mapDbRole(dbRole: string): UserRole {
+  const map: Record<string, UserRole> = { admin: 'ADMIN', staff: 'STAFF', viewer: 'VIEWER' }
+  return map[dbRole] || 'NONE'
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -13,15 +19,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Restore user from localStorage on mount and check Supabase session
+  // Check Supabase session on mount
   useEffect(() => {
     const initAuth = async () => {
       try {
         // Check for existing Supabase session
         const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        
+
         if (sessionError) {
-          console.error('[v0] Session error:', sessionError)
+          console.error('[Auth] Session error:', sessionError)
+          // Don't throw here, just let it fail gracefully (user defaults to null)
         }
 
         if (session?.user) {
@@ -33,54 +40,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .single()
 
           if (userError) {
-            console.error('[v0] Error fetching user data:', userError)
+            console.error('[Auth] Error fetching user data:', userError)
           } else if (userData) {
             const mappedUser: User = {
               id: userData.id,
               email: userData.email,
               name: userData.name,
-              role: userData.role as 'ADMIN' | 'STAFF' | 'NONE',
+              role: mapDbRole(userData.role),
+              workspaceId: userData.workspace_id,
               createdAt: new Date(userData.created_at),
             }
             setUser(mappedUser)
-            saveUser(mappedUser)
-          }
-        } else {
-          // Fall back to localStorage if no active session
-          const savedUser = getSavedUser()
-          if (savedUser) {
-            setUser(savedUser)
           }
         }
       } catch (err) {
-        console.error('[v0] Auth initialization error:', err)
+        console.error('[Auth] Auth initialization error:', err)
       } finally {
         setIsLoading(false)
       }
     }
 
     initAuth()
-  }, [])
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, session: Session | null) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null)
+      } else if (event === 'SIGNED_IN' && session?.user && !user) {
+        // Optionally refetch user here if needed, but usually login sets it
+        // This serves as a backup or for other tab updates
+        const { data: userData } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+
+        if (userData) {
+          setUser({
+            id: userData.id,
+            email: userData.email,
+            name: userData.name,
+            role: mapDbRole(userData.role),
+            workspaceId: userData.workspace_id,
+            createdAt: new Date(userData.created_at),
+          })
+        }
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, []) // Remove user dependency to avoid loops
 
   const login = async (email: string, password: string) => {
     setIsLoading(true)
     setError(null)
     try {
-      // Try Supabase auth first
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (authError) {
-        // Fall back to mock validation for demo
-        const loggedInUser = await validateLogin(email, password)
-        if (!loggedInUser) {
-          throw new Error('Invalid email or password')
-        }
-        setUser(loggedInUser)
-        saveUser(loggedInUser)
-      } else if (authData.user) {
+        throw new Error(authError.message)
+      }
+
+      if (authData.user) {
         // Fetch user data from database
         const { data: userData, error: userError } = await supabase
           .from('users')
@@ -88,17 +114,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .eq('id', authData.user.id)
           .single()
 
-        if (userError) throw userError
+        if (userError) {
+          // Check if it's a "not found" error which might happen if auth exists but user record doesn't
+          throw new Error('User record not found. Please contact support.')
+        }
 
         const mappedUser: User = {
           id: userData.id,
           email: userData.email,
           name: userData.name,
-          role: userData.role as 'ADMIN' | 'STAFF' | 'NONE',
+          role: mapDbRole(userData.role),
+          workspaceId: userData.workspace_id,
           createdAt: new Date(userData.created_at),
         }
         setUser(mappedUser)
-        saveUser(mappedUser)
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed'
@@ -113,50 +142,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true)
     setError(null)
     try {
-      // Try Supabase signup first
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-          },
-        },
+      // Call server-side API route (uses admin client to bypass RLS)
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          name,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        }),
       })
 
-      if (authError) {
-        // Fall back to mock signup for demo
-        const newUser = await validateSignup(email, password, name, 'STAFF')
-        setUser(newUser)
-        saveUser(newUser)
-      } else if (authData.user) {
-        // Create workspace for new user
-        const slug = email.split('@')[0].toLowerCase()
-        const workspace = await createWorkspace({
-          name: `${name}'s Workspace`,
-          email,
-          slug: `${slug}-${Date.now()}`,
-          timezone: 'UTC',
-        })
+      const result = await response.json()
 
-        // Create user record in database
-        const userData = await createUser({
-          workspace_id: workspace.id,
-          email,
-          name,
-          role: 'admin',
-          status: 'active',
-        })
+      if (!response.ok) {
+        throw new Error(result.error || 'Signup failed')
+      }
 
+      // Sign in with the newly created credentials to establish a client session
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (signInError) {
+        throw new Error(signInError.message)
+      }
+
+      if (signInData.user && result.user) {
         const mappedUser: User = {
-          id: userData.id,
-          email: userData.email,
-          name: userData.name,
-          role: userData.role as 'ADMIN' | 'STAFF' | 'NONE',
-          createdAt: new Date(userData.created_at),
+          id: result.user.id,
+          email: result.user.email,
+          name: result.user.name,
+          role: mapDbRole(result.user.role),
+          workspaceId: result.user.workspace_id,
+          createdAt: new Date(result.user.created_at),
         }
         setUser(mappedUser)
-        saveUser(mappedUser)
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Signup failed'
@@ -170,14 +193,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setIsLoading(true)
     try {
-      // Sign out from Supabase
       const { error } = await supabase.auth.signOut()
-      if (error) console.error('[v0] Logout error:', error)
-      
+      if (error) console.error('[Auth] Logout error:', error)
+
       setUser(null)
-      removeUser()
     } catch (err) {
-      console.error('[v0] Logout failed:', err)
+      console.error('[Auth] Logout failed:', err)
     } finally {
       setIsLoading(false)
     }

@@ -10,14 +10,29 @@ import {
   AlertTriangle,
   ArrowRight,
 } from 'lucide-react'
-import { mockAlertCounts } from '@/lib/mockData'
 
-export function AlertsCenter() {
+interface AlertsCenterProps {
+  counts?: {
+    unreadMessages: number
+    unconfirmedBookings: number
+    overdueForms: number
+    criticalInventory: number
+  }
+}
+
+export function AlertsCenter({ counts }: AlertsCenterProps) {
+  const alertCounts = counts || {
+    unreadMessages: 0,
+    unconfirmedBookings: 0,
+    overdueForms: 0,
+    criticalInventory: 0,
+  }
+
   const alerts = [
     {
       icon: MessageCircle,
       label: 'Unread Messages',
-      count: mockAlertCounts.unreadMessages,
+      count: alertCounts.unreadMessages,
       href: '/inbox',
       color: 'text-red-600',
       bgColor: 'bg-red-50 dark:bg-red-900/20',
@@ -26,7 +41,7 @@ export function AlertsCenter() {
     {
       icon: Calendar,
       label: 'Unconfirmed Bookings',
-      count: mockAlertCounts.unconfirmedBookings,
+      count: alertCounts.unconfirmedBookings,
       href: '/bookings',
       color: 'text-yellow-600',
       bgColor: 'bg-yellow-50 dark:bg-yellow-900/20',
@@ -35,7 +50,7 @@ export function AlertsCenter() {
     {
       icon: FileText,
       label: 'Overdue Forms',
-      count: mockAlertCounts.overdueForms,
+      count: alertCounts.overdueForms,
       href: '/forms',
       color: 'text-orange-600',
       bgColor: 'bg-orange-50 dark:bg-orange-900/20',
@@ -44,7 +59,7 @@ export function AlertsCenter() {
     {
       icon: AlertTriangle,
       label: 'Critical Inventory',
-      count: mockAlertCounts.criticalInventory,
+      count: alertCounts.criticalInventory,
       href: '/inventory',
       color: 'text-red-600',
       bgColor: 'bg-red-50 dark:bg-red-900/20',
@@ -85,3 +100,4 @@ export function AlertsCenter() {
     </Card>
   )
 }
+

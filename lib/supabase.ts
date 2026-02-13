@@ -31,6 +31,8 @@ export type Database = {
           timezone: string
           slug: string
           onboarding_completed: boolean
+          email_sms_settings?: any
+          availability_settings?: any
           created_at: string
           updated_at: string
         }
@@ -49,7 +51,7 @@ export type Database = {
           created_at: string
           updated_at: string
         }
-        Insert: Omit<Database['public']['Tables']['users']['Row'], 'id' | 'created_at' | 'updated_at'>
+        Insert: Omit<Database['public']['Tables']['users']['Row'], 'created_at' | 'updated_at'>
         Update: Partial<Database['public']['Tables']['users']['Insert']>
       }
       contacts: {

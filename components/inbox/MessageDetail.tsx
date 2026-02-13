@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Mail, Send, Archive, Trash2, ArrowReply } from 'lucide-react'
+import { Mail, Send, Archive, Trash2, Reply } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
 const PRIORITY_COLORS = {
@@ -103,7 +103,7 @@ export function MessageDetail() {
             {message.channel !== 'system' && (
               <div className="mt-3 pt-3 border-t border-border">
                 <Button size="sm" variant="ghost" className="gap-2" onClick={() => setIsReplying(true)}>
-                  <ArrowReply className="w-4 h-4" />
+                  <Reply className="w-4 h-4" />
                   Reply
                 </Button>
               </div>

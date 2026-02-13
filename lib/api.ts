@@ -221,7 +221,7 @@ export async function getBooking(id: string) {
   return data
 }
 
-export async function getBookings(workspaceId: string, options?: { 
+export async function getBookings(workspaceId: string, options?: {
   status?: string
   startDate?: string
   endDate?: string
@@ -385,7 +385,7 @@ export async function createFormSubmission(data: Database['public']['Tables']['f
   return submission
 }
 
-export async function getFormSubmissions(workspaceId: string, options?: { 
+export async function getFormSubmissions(workspaceId: string, options?: {
   formName?: string
   status?: string
   limit?: number
@@ -472,14 +472,15 @@ export async function getLowStockItems(workspaceId: string) {
     .select('*')
     .eq('workspace_id', workspaceId)
     .eq('is_active', true)
-    .filter('quantity', 'lte', supabase.from('inventory_items').select('reorder_level'))
     .order('quantity', { ascending: true })
 
   if (error) {
     console.error('[v0] Error fetching low stock items:', error)
     throw error
   }
-  return data
+  // Supabase PostgREST doesn't support cross-column comparisons natively,
+  // so we filter in JavaScript
+  return (data || []).filter(item => item.quantity <= item.reorder_level)
 }
 
 export async function updateInventoryItem(id: string, data: Database['public']['Tables']['inventory_items']['Update']) {

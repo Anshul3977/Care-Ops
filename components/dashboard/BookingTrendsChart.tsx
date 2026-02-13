@@ -11,9 +11,18 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Card } from '@/components/ui/card'
-import { mockBookingData } from '@/lib/mockData'
+export interface BookingTrendData {
+  date: string
+  completed: number
+  confirmed: number
+  noshow: number
+}
 
-export function BookingTrendsChart() {
+interface BookingTrendsChartProps {
+  data: BookingTrendData[]
+}
+
+export function BookingTrendsChart({ data }: BookingTrendsChartProps) {
   return (
     <Card className="p-6 border border-border">
       <div className="mb-6">
@@ -21,7 +30,7 @@ export function BookingTrendsChart() {
         <p className="text-sm text-muted-foreground">Completed vs Confirmed vs No-shows</p>
       </div>
       <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={mockBookingData}>
+        <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis
             dataKey="date"

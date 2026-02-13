@@ -9,9 +9,17 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Card } from '@/components/ui/card'
-import { mockLeadSourceData } from '@/lib/mockData'
+export interface LeadSourceData {
+  name: string
+  value: number
+  fill: string
+}
 
-export function LeadSourcesChart() {
+interface LeadSourcesChartProps {
+  data: LeadSourceData[]
+}
+
+export function LeadSourcesChart({ data }: LeadSourcesChartProps) {
   return (
     <Card className="p-6 border border-border">
       <div className="mb-6">
@@ -21,7 +29,7 @@ export function LeadSourcesChart() {
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
           <Pie
-            data={mockLeadSourceData}
+            data={data}
             cx="50%"
             cy="50%"
             labelLine={false}
@@ -30,7 +38,7 @@ export function LeadSourcesChart() {
             fill="#8884d8"
             dataKey="value"
           >
-            {mockLeadSourceData.map((entry, index) => (
+            {data.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={entry.fill} />
             ))}
           </Pie>
