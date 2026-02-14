@@ -141,81 +141,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true)
     setError(null)
     try {
-      // 1. Sign up with Supabase Auth (creates auth user + auto-signs in)
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
+      // 1. Call the server-side signup API (uses admin client to bypass RLS)
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name, timezone }),
+      })
+
+      const result = await res.json()
+
+      if (!res.ok) {
+        const errorMsg = result.error || 'Signup failed'
+        if (errorMsg.includes('already registered') || errorMsg.includes('already been registered')) {
+          throw new Error('An account with this email already exists. Please log in instead.')
+        }
+        throw new Error(errorMsg)
+      }
+
+      // 2. Sign in with Supabase Auth to get a proper client session
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
-        options: {
-          data: { name }, // Store name in user_metadata
-        },
       })
 
       if (authError) {
-        // Handle specific Supabase auth errors
-        if (authError.message.includes('already registered')) {
-          throw new Error('An account with this email already exists. Please log in instead.')
-        }
-        throw new Error(authError.message)
+        console.error('[Auth] Post-signup sign-in error:', authError)
+        throw new Error('Account created but sign-in failed. Please go to login page.')
       }
 
-      if (!authData.user) {
-        throw new Error('Signup failed — no user returned from Supabase Auth.')
-      }
-
-      const userId = authData.user.id
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-
-      // 2. Create workspace record
-      const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Math.floor(Math.random() * 1000)
-
-      const { data: workspace, error: wsError } = await supabase
-        .from('workspaces')
-        .insert([{
-          name: `${name}'s Workspace`,
-          email,
-          slug,
-          timezone,
-          onboarding_completed: false,
-          address: null,
-        }])
-        .select()
-        .single()
-
-      if (wsError) {
-        console.error('[Auth] Workspace creation error:', wsError)
-        throw new Error('Failed to create workspace: ' + wsError.message)
-      }
-
-      // 3. Create user record linked to auth user (id matches auth.uid() for RLS)
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .insert([{
-          id: userId,
-          workspace_id: workspace.id,
-          email,
-          name,
-          role: 'admin',
-          status: 'active',
-          password_hash: null,
-        }])
-        .select()
-        .single()
-
-      if (userError) {
-        console.error('[Auth] User record creation error:', userError)
-        // Cleanup: remove the workspace we just created
-        await supabase.from('workspaces').delete().eq('id', workspace.id)
-        throw new Error('Failed to create user record: ' + userError.message)
-      }
-
-      // 4. Set user state
+      // 3. Set user state from API response
       const mappedUser: User = {
-        id: userData.id,
-        email: userData.email,
-        name: userData.name,
-        role: mapDbRole(userData.role),
-        workspaceId: userData.workspace_id,
-        createdAt: new Date(userData.created_at),
+        id: result.user.id,
+        email: result.user.email,
+        name: result.user.name,
+        role: mapDbRole(result.user.role),
+        workspaceId: result.user.workspace_id,
+        createdAt: new Date(result.user.created_at),
       }
       setUser(mappedUser)
     } catch (err) {

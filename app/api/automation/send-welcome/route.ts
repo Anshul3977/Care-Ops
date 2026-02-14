@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendEmail, emailTemplates } from '@/lib/email'
 
 export async function POST(request: NextRequest) {
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     console.log('[v0] Processing welcome email for contact:', contact_id)
 
     // Fetch contact details
-    const { data: contactData, error: contactError } = await supabase
+    const { data: contactData, error: contactError } = await supabaseAdmin
       .from('contacts')
       .select('id, name, email, workspace_id')
       .eq('id', contact_id)
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch workspace details
-    const { data: workspaceData, error: workspaceError } = await supabase
+    const { data: workspaceData, error: workspaceError } = await supabaseAdmin
       .from('workspaces')
       .select('id, name, email')
       .eq('id', contactData.workspace_id)
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create system message in the conversation
-    const { data: conversationData, error: conversationError } = await supabase
+    const { data: conversationData, error: conversationError } = await supabaseAdmin
       .from('conversations')
       .select('id')
       .eq('contact_id', contact_id)
@@ -72,18 +72,15 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (!conversationError && conversationData) {
-      const { error: messageError } = await supabase
+      const { error: messageError } = await supabaseAdmin
         .from('messages')
         .insert({
           conversation_id: conversationData.id,
-          sender_type: 'system',
-          sender_id: workspaceData.id,
-          body: `Automated welcome email sent to ${contactData.email}`,
-          metadata: {
-            email_sent: true,
-            sent_at: new Date().toISOString(),
-            message_id: sendResult.messageId,
-          },
+          content: `Automated welcome email sent to ${contactData.email}`,
+          type: 'system',
+          direction: 'outbound',
+          sender_name: 'System',
+          sender_email: null,
         })
 
       if (messageError) {
@@ -95,15 +92,15 @@ export async function POST(request: NextRequest) {
     if (workspaceData.email && workspaceData.email !== contactData.email) {
       try {
         // Fetch first message from conversation for context
-        const { data: firstMessage } = await supabase
+        const { data: firstMessage } = await supabaseAdmin
           .from('messages')
-          .select('body')
+          .select('content')
           .eq('conversation_id', conversationData?.id || '')
           .order('created_at', { ascending: true })
           .limit(1)
           .single()
 
-        const messageContent = firstMessage?.body || '[Message content not available]'
+        const messageContent = firstMessage?.content || '[Message content not available]'
         const notificationTemplate = emailTemplates.notificationToWorkspace(contactData.name, messageContent)
 
         await sendEmail({

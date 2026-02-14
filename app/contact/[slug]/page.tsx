@@ -30,7 +30,7 @@ type PageState = 'loading' | 'form' | 'success' | 'error'
 export default function ContactPage() {
   const params = useParams()
   const slug = params.slug as string
-  
+
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [pageState, setPageState] = useState<PageState>('loading')
   const [formData, setFormData] = useState<FormData>({
@@ -47,24 +47,17 @@ export default function ContactPage() {
   useEffect(() => {
     const fetchWorkspace = async () => {
       try {
-        const { data, error } = await supabase
-          .from('workspaces')
-          .select('id, name, email, phone, address')
-          .eq('slug', slug)
-          .single()
+        const res = await fetch(`/api/contact/workspace?slug=${encodeURIComponent(slug as string)}`)
+        const result = await res.json()
 
-        if (error) {
-          console.error('[v0] Error fetching workspace:', error)
+        if (!res.ok || !result.workspace) {
+          console.error('[v0] Error fetching workspace:', result.error)
           setPageState('error')
           return
         }
 
-        if (data) {
-          setWorkspace(data)
-          setPageState('form')
-        } else {
-          setPageState('error')
-        }
+        setWorkspace(result.workspace)
+        setPageState('form')
       } catch (err) {
         console.error('[v0] Workspace fetch error:', err)
         setPageState('error')
@@ -105,59 +98,29 @@ export default function ContactPage() {
     setIsSubmitting(true)
 
     try {
-      // Create contact
-      const { data: contactData, error: contactError } = await supabase
-        .from('contacts')
-        .insert({
+      // Use the server-side API route (admin client bypasses RLS)
+      const res = await fetch('/api/contact/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           workspace_id: workspace.id,
           name: formData.name,
           email: formData.email,
           phone: formData.phone || null,
-          status: 'new',
-        })
-        .select('id')
-        .single()
+          message: formData.message,
+        }),
+      })
 
-      if (contactError) throw contactError
+      const result = await res.json()
 
-      const contactId = contactData.id
+      if (!res.ok) {
+        throw new Error(result.error || 'Failed to submit form')
+      }
 
-      // Create conversation
-      const { data: conversationData, error: conversationError } = await supabase
-        .from('conversations')
-        .insert({
-          workspace_id: workspace.id,
-          contact_id: contactId,
-          subject: `Contact from ${formData.name}`,
-          status: 'open',
-        })
-        .select('id')
-        .single()
-
-      if (conversationError) throw conversationError
-
-      const conversationId = conversationData.id
-
-      // Create initial message
-      const { error: messageError } = await supabase
-        .from('messages')
-        .insert({
-          conversation_id: conversationId,
-          sender_type: 'contact',
-          sender_id: contactId,
-          body: formData.message,
-        })
-
-      if (messageError) throw messageError
-
-      // Trigger welcome email
-      await fetch('/api/automation/send-welcome', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contact_id: contactId }),
-      }).catch((err) => console.error('[v0] Email trigger error:', err))
-
-      setSuccessData({ contactId, conversationId })
+      setSuccessData({
+        contactId: result.contactId,
+        conversationId: result.conversationId,
+      })
       setPageState('success')
     } catch (err) {
       console.error('[v0] Form submission error:', err)
@@ -370,9 +333,8 @@ export default function ContactPage() {
                     value={formData.message}
                     onChange={(e) => handleInputChange('message', e.target.value)}
                     rows={5}
-                    className={`w-full px-3 py-2 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary mt-2 resize-none ${
-                      errors.message ? 'border-destructive' : 'border-input'
-                    }`}
+                    className={`w-full px-3 py-2 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary mt-2 resize-none ${errors.message ? 'border-destructive' : 'border-input'
+                      }`}
                   />
                   {errors.message && <p className="text-xs text-destructive mt-1">{errors.message}</p>}
                 </div>

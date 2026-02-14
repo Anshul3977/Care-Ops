@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useOnboarding } from '@/contexts/OnboardingContext'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -47,7 +47,7 @@ export function Step1CreateWorkspace() {
   }
 
   // Auto-save on change
-  React.useEffect(() => {
+  useEffect(() => {
     if (isComplete) {
       const timer = setTimeout(handleSave, 500)
       return () => clearTimeout(timer)

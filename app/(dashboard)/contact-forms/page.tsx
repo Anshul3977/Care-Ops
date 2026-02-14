@@ -105,7 +105,7 @@ export default function ContactFormsPage() {
                           <span>{form.submissions} submissions</span>
                           {form.lastSubmission && (
                             <span>
-                              Last: {form.lastSubmission.toLocaleDateString()}
+                              Last: {new Date(form.lastSubmission).toLocaleDateString()}
                             </span>
                           )}
                         </div>

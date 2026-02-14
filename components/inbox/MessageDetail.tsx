@@ -21,6 +21,12 @@ export function MessageDetail() {
   const [replyContent, setReplyContent] = useState('')
   const [isReplying, setIsReplying] = useState(false)
 
+  React.useEffect(() => {
+    if (selectedThread && selectedThread.unreadCount > 0) {
+      markThreadAsRead(selectedThread.id)
+    }
+  }, [selectedThread?.id, selectedThread?.unreadCount, markThreadAsRead])
+
   if (!selectedThread) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -39,12 +45,6 @@ export function MessageDetail() {
       setIsReplying(false)
     }
   }
-
-  React.useEffect(() => {
-    if (selectedThread?.unreadCount > 0) {
-      markThreadAsRead(selectedThread.id)
-    }
-  }, [selectedThread?.id, selectedThread?.unreadCount, markThreadAsRead])
 
   return (
     <div className="flex flex-col h-full gap-4">

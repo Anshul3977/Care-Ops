@@ -255,9 +255,11 @@ CREATE POLICY "workspace_users_can_view_own" ON workspaces
   );
 
 -- Users: Can only see other users in same workspace
+-- Users: Can see own record + other users in same workspace
 CREATE POLICY "users_can_view_workspace_users" ON users
   FOR SELECT USING (
-    workspace_id IN (
+    id = auth.uid()
+    OR workspace_id = (
       SELECT workspace_id FROM users WHERE id = auth.uid()
     )
   );
