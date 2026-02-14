@@ -99,7 +99,7 @@ export function LoginForm() {
           <div className="pt-2 border-t border-border">
             <p className="text-muted-foreground mb-2">Demo Credentials:</p>
             <p className="text-xs text-muted-foreground">
-              <strong>Admin:</strong> finaltest@example.com / Test123!
+              <strong>Admin:</strong> finaltest@example.com / Test123456
             </p>
           </div>
         </div>
