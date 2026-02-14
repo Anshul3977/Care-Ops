@@ -1,7 +1,9 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { Booking, BookingStatus, BookingStats, MOCK_BOOKINGS } from '@/lib/bookingsData'
+import { Booking, BookingStatus, BookingStats } from '@/lib/bookingsData'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface BookingsContextType {
   bookings: Booking[]
@@ -11,6 +13,7 @@ interface BookingsContextType {
   filterStatus: BookingStatus | 'all'
   searchQuery: string
   isLoading: boolean
+  error: string | null
   selectBooking: (booking: Booking) => void
   setFilterStatus: (status: BookingStatus | 'all') => void
   setSearchQuery: (query: string) => void
@@ -23,6 +26,7 @@ interface BookingsContextType {
 const BookingsContext = createContext<BookingsContextType | undefined>(undefined)
 
 export function BookingsProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
   const [bookings, setBookings] = useState<Booking[]>([])
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [filterStatus, setFilterStatus] = useState<BookingStatus | 'all'>('all')
@@ -37,22 +41,82 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     occupancyRate: 0,
   })
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Initialize with mock data
+  // Helper: compute end time from start + duration
+  function computeEndTime(start: string, durationMinutes: number): string {
+    const [h, m] = start.split(':').map(Number)
+    const totalMinutes = h * 60 + m + durationMinutes
+    const endH = Math.floor(totalMinutes / 60) % 24
+    const endM = totalMinutes % 60
+    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`
+  }
+
+  // Map a Supabase booking row (with joined contact + booking_type) to our Booking interface
+  function mapDbBooking(row: any): Booking {
+    const contact = row.contact as { name: string; email: string | null; phone: string | null } | null
+    const bookingType = row.booking_type as { name: string; duration_minutes: number; price: number | null } | null
+
+    const startTime = row.booking_time || '09:00'
+    const duration = bookingType?.duration_minutes ?? 60
+    const endTime = computeEndTime(startTime, duration)
+
+    return {
+      id: row.id,
+      customerId: row.contact_id || '',
+      customerName: contact?.name || 'Unknown',
+      customerEmail: contact?.email || '',
+      customerPhone: contact?.phone || '',
+      service: 'service', // Default; DB doesn't have the BookingType union
+      serviceTitle: bookingType?.name || 'Service',
+      date: new Date(row.booking_date),
+      timeSlot: { start: startTime, end: endTime },
+      status: row.status as BookingStatus,
+      notes: row.notes || undefined,
+      totalPrice: bookingType?.price ?? undefined,
+      staffAssigned: row.assigned_to || undefined,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    }
+  }
+
+  // Fetch bookings from Supabase
   useEffect(() => {
-    const initializeBookings = async () => {
+    const fetchBookings = async () => {
+      if (!user?.workspaceId) {
+        setIsLoading(false)
+        return
+      }
+
       try {
-        setBookings(MOCK_BOOKINGS)
-        calculateStats(MOCK_BOOKINGS)
-      } catch (error) {
-        console.error('Failed to load bookings data:', error)
+        setIsLoading(true)
+        setError(null)
+
+        const { data, error: fetchError } = await supabase
+          .from('bookings')
+          .select(`
+            *,
+            contact:contacts(name, email, phone),
+            booking_type:booking_types(name, duration_minutes, price)
+          `)
+          .eq('workspace_id', user.workspaceId)
+          .order('booking_date', { ascending: false })
+
+        if (fetchError) throw fetchError
+
+        const mapped = (data || []).map(mapDbBooking)
+        setBookings(mapped)
+        calculateStats(mapped)
+      } catch (err) {
+        console.error('Failed to load bookings:', err)
+        setError('Failed to load bookings')
       } finally {
         setIsLoading(false)
       }
     }
 
-    initializeBookings()
-  }, [])
+    fetchBookings()
+  }, [user?.workspaceId])
 
   const calculateStats = (bookingsList: Booking[]) => {
     const confirmed = bookingsList.filter((b) => b.status === 'confirmed').length
@@ -92,7 +156,8 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     setSelectedBooking(booking)
   }
 
-  const updateBookingStatus = (bookingId: string, status: BookingStatus) => {
+  const updateBookingStatus = async (bookingId: string, status: BookingStatus) => {
+    // Optimistically update local state
     const updated = bookings.map((booking) =>
       booking.id === bookingId ? { ...booking, status, updatedAt: new Date() } : booking
     )
@@ -102,6 +167,24 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     if (selectedBooking?.id === bookingId) {
       setSelectedBooking({ ...selectedBooking, status })
     }
+
+    // Persist to Supabase
+    try {
+      const { error: updateError } = await supabase
+        .from('bookings')
+        .update({ status })
+        .eq('id', bookingId)
+
+      if (updateError) {
+        console.error('Failed to update booking status in DB:', updateError)
+        // Revert optimistic update on failure
+        const reverted = bookings // original state before update
+        setBookings(reverted)
+        calculateStats(reverted)
+      }
+    } catch (err) {
+      console.error('Error updating booking status:', err)
+    }
   }
 
   const getUpcomingBookings = () => {
@@ -110,8 +193,7 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
       .filter(
         (b) =>
           b.date > now &&
-          (b.status === 'confirmed' || b.status === 'pending') &&
-          b.status !== 'cancelled'
+          (b.status === 'confirmed' || b.status === 'pending')
       )
       .sort((a, b) => a.date.getTime() - b.date.getTime())
       .slice(0, 5)
@@ -120,8 +202,6 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   const getTodayBookings = () => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
 
     return bookings
       .filter((b) => {
@@ -139,8 +219,6 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   const getBookingsByDate = (date: Date) => {
     const targetDate = new Date(date)
     targetDate.setHours(0, 0, 0, 0)
-    const nextDate = new Date(targetDate)
-    nextDate.setDate(nextDate.getDate() + 1)
 
     return bookings
       .filter((b) => {
@@ -165,6 +243,7 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
         filterStatus,
         searchQuery,
         isLoading,
+        error,
         selectBooking,
         setFilterStatus,
         setSearchQuery,

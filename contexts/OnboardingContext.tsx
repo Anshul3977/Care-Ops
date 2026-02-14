@@ -47,26 +47,18 @@ export function OnboardingProvider({
   const [mounted, setMounted] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
-  // Helper to get workspace ID. We need to fetch it if not in user object, 
-  // but for now let's assume we can query it or it's on the user object.
-  // Since I am updating User type in a separate tool call, I will cast user here or assume it's updated.
-  // To be safe, I'll fetch it if needed or use a helper. 
-  // Actually, I'll assume 'user' object has it after my other updates.
-  // Accessing `(user as any).workspaceId` to avoid TS error before definition upgrade.
-  const getWorkspaceId = async () => {
-    if (!user) return null;
-    // Check if we have it in the user object (typed or untyped)
-    if ((user as any).workspaceId) return (user as any).workspaceId;
+  const getWorkspaceId = async (): Promise<string | null> => {
+    if (!user) return null
+    if (user.workspaceId) return user.workspaceId
 
-    // Fallback: fetch from DB
-    const { data, error } = await supabase
+    // Fallback: fetch from DB if not on user object
+    const { data } = await supabase
       .from('users')
       .select('workspace_id')
       .eq('id', user.id)
       .single()
 
-    if (data) return data.workspace_id;
-    return null;
+    return data?.workspace_id ?? null
   }
 
   // Load from localStorage on mount
@@ -113,10 +105,7 @@ export function OnboardingProvider({
           .update({
             name: config.businessName,
             address: config.address,
-            // Map contactEmail to email column
             email: config.contactEmail,
-            // Timezone is in config but not in the update payload I originally wrote. 
-            // Let's add it if it's there.
             timezone: config.timezone,
           })
           .eq('id', workspaceId)
@@ -167,24 +156,11 @@ export function OnboardingProvider({
   }
 
   const updateContactForm = async (config: ContactFormConfig) => {
-    // Step 3: Just local state? Prompt didn't specify DB save for Step 3, 
-    // but "Save each onboarding step to Supabase immediately"
-    // Requirement list skipped Step 3 changes detailed instructions.
-    // "Step 1...", "Step 2...", "Step 4...". 
-    // I will just update state for now as implicitly requested (only specified steps).
-    // Actually "Save each onboarding step" is general instruction.
-    // But Step 3 Contact Form might be part of "contact_forms" table?
-    // Let's look at schema. `contact_forms` table exists.
-    // I will try to save it if `contact_forms` table matches.
-    // `contact_forms` has `fields` (jsonb?), `name`.
-    // Config has `fields`.
-    // I'll leave it as state-only for now if instructions didn't explicitly detail mapping for Step 3, 
-    // to avoid breakage or "guessing".
-
     setState((prev) => ({
       ...prev,
       contactForm: config,
       completed: { ...prev.completed, step3: true },
+      currentStep: prev.currentStep + 1,
     }))
   }
 
@@ -233,11 +209,11 @@ export function OnboardingProvider({
   }
 
   const updatePostBookingForms = async (config: PostBookingFormsConfig) => {
-    // Step 5: similar to step 3, no specific instructions.
     setState((prev) => ({
       ...prev,
       postBookingForms: config,
       completed: { ...prev.completed, step5: true },
+      currentStep: prev.currentStep + 1,
     }))
   }
 
@@ -330,20 +306,9 @@ export function OnboardingProvider({
         completed: { ...prev.completed, step8: true },
       }))
 
-      // Redirect handled by component or separate effect, normally?
-      // Prompt says "Redirect to /dashboard/owner".
-      // Usually done in UI, but if I can do it here via router...
-      // I can't assign to value of undefined if I don't have router.
-      // prompt says "Redirect to /dashboard/owner".
-      // I'll leave redirection to the Consumer of this context (the page),
-      // as usually context just updates state.
-      // However, if I can use `next/navigation` here.
-      // `useRouter` from `next/navigation`.
-
-      // But wait! Function is async now.
-      // I'll add window.location.href or router.push if I can import it.
-      // I'll stick to state update, and let the UI react to `workspaceActivated: true`.
-
+      // Clear onboarding state and redirect to dashboard
+      localStorage.removeItem('onboarding-state')
+      window.location.href = '/dashboard/owner'
     } catch (error) {
       console.error('Error activating workspace:', error)
       toast.error('Failed to activate workspace')

@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { AuthContextType, User, UserRole } from '@/types'
 import { supabase } from '@/lib/supabase'
-import { createWorkspace, createUser } from '@/lib/api'
 import { AuthChangeEvent, Session } from '@supabase/supabase-js'
 
 // Map DB lowercase roles to frontend uppercase UserRole
@@ -142,45 +141,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true)
     setError(null)
     try {
-      // Call server-side API route (uses admin client to bypass RLS)
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          password,
-          name,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        }),
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Signup failed')
-      }
-
-      // Sign in with the newly created credentials to establish a client session
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      // 1. Sign up with Supabase Auth (creates auth user + auto-signs in)
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: { name }, // Store name in user_metadata
+        },
       })
 
-      if (signInError) {
-        throw new Error(signInError.message)
+      if (authError) {
+        // Handle specific Supabase auth errors
+        if (authError.message.includes('already registered')) {
+          throw new Error('An account with this email already exists. Please log in instead.')
+        }
+        throw new Error(authError.message)
       }
 
-      if (signInData.user && result.user) {
-        const mappedUser: User = {
-          id: result.user.id,
-          email: result.user.email,
-          name: result.user.name,
-          role: mapDbRole(result.user.role),
-          workspaceId: result.user.workspace_id,
-          createdAt: new Date(result.user.created_at),
-        }
-        setUser(mappedUser)
+      if (!authData.user) {
+        throw new Error('Signup failed — no user returned from Supabase Auth.')
       }
+
+      const userId = authData.user.id
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
+      // 2. Create workspace record
+      const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Math.floor(Math.random() * 1000)
+
+      const { data: workspace, error: wsError } = await supabase
+        .from('workspaces')
+        .insert([{
+          name: `${name}'s Workspace`,
+          email,
+          slug,
+          timezone,
+          onboarding_completed: false,
+          address: null,
+        }])
+        .select()
+        .single()
+
+      if (wsError) {
+        console.error('[Auth] Workspace creation error:', wsError)
+        throw new Error('Failed to create workspace: ' + wsError.message)
+      }
+
+      // 3. Create user record linked to auth user (id matches auth.uid() for RLS)
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .insert([{
+          id: userId,
+          workspace_id: workspace.id,
+          email,
+          name,
+          role: 'admin',
+          status: 'active',
+          password_hash: null,
+        }])
+        .select()
+        .single()
+
+      if (userError) {
+        console.error('[Auth] User record creation error:', userError)
+        // Cleanup: remove the workspace we just created
+        await supabase.from('workspaces').delete().eq('id', workspace.id)
+        throw new Error('Failed to create user record: ' + userError.message)
+      }
+
+      // 4. Set user state
+      const mappedUser: User = {
+        id: userData.id,
+        email: userData.email,
+        name: userData.name,
+        role: mapDbRole(userData.role),
+        workspaceId: userData.workspace_id,
+        createdAt: new Date(userData.created_at),
+      }
+      setUser(mappedUser)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Signup failed'
       setError(message)
