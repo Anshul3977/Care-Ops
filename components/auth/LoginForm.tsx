@@ -95,14 +95,11 @@ export function LoginForm() {
               Create one
             </Link>
           </p>
-          
+
           <div className="pt-2 border-t border-border">
             <p className="text-muted-foreground mb-2">Demo Credentials:</p>
             <p className="text-xs text-muted-foreground">
-              <strong>Admin:</strong> admin@careops.com / admin123
-            </p>
-            <p className="text-xs text-muted-foreground">
-              <strong>Staff:</strong> staff@careops.com / staff123
+              <strong>Admin:</strong> finaltest@example.com / Test123!
             </p>
           </div>
         </div>
